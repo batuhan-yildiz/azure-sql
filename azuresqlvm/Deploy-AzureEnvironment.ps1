@@ -1,14 +1,15 @@
 # Connect to Azure Subscription
 # Create a new Resource Group
 # Create a new Virtual Network with 3 subnets
+# Create a new Windows Virtual Machine
+# Create a new Network Security Group Rule
+# Configure Bastion to connect to Azure Virtual Machine
 
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [string]$subscriptionId,
-    [Parameter(Mandatory = $true)]
     [string]$resourceGroup = "azure-data-rg01",
-    [Parameter(Mandatory = $true)]
     [string]$location = "westus2"
 )
 function NewMessage 
@@ -57,7 +58,6 @@ function ConnectToAzure
         Write-Warning "Error occured = " $Error[0]
         Exit
     }
-
 }
 
 # Create a new Resource Group
@@ -87,7 +87,6 @@ function NewResourceGroup
     catch {
         Write-Warning "Error occured = " $Error[0]
     }
-
 }
 
 # Create a new Virtual Network
@@ -166,7 +165,257 @@ function NewVirtualNetwork
     catch {
         Write-Warning "Error occured = " $Error[0]
     }
+}
 
+# Create a new Windows Virtual Machine
+function NewWindowsVM
+{
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$resourceGroup,
+        [Parameter(Mandatory = $true)]
+        [string]$location,
+        [Parameter(Mandatory = $true)]
+        [string]$networkInterfaceIpConfigName,
+        [Parameter(Mandatory = $true)]
+        [string]$privateIpAddressVersion,
+        [Parameter(Mandatory = $true)]
+        [string]$privateIPAddress,
+        [Parameter(Mandatory = $true)]
+        [string]$subnetName,
+        [Parameter(Mandatory = $true)]
+        [string]$networkInterfaceName,
+        [Parameter(Mandatory = $true)]
+        [string]$networkSecurityGroupName,
+        [Parameter(Mandatory = $true)]
+        [string]$virtualNetworkName,
+        [Parameter(Mandatory = $true)]
+        [string]$adminUsername,
+        [Parameter(Mandatory = $true)]
+        [string]$adminPassword,
+        [Parameter(Mandatory = $true)]
+        [string]$virtualMachineName,
+        [Parameter(Mandatory = $true)]
+        [string]$virtualMachineSize,
+        [Parameter(Mandatory = $true)]
+        [string]$vmPublisher,
+        [Parameter(Mandatory = $true)]
+        [string]$vmOfferName,
+        [Parameter(Mandatory = $true)]
+        [string]$vmSKUName
+    )
+
+    try {
+            # Create a new network security group
+            $message = ""
+            $nsg = Get-AzNetworkSecurityGroup -Name $networkSecurityGroupName -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue
+            if ($null -eq $nsg) {
+                $Params = @{
+                    ResourceGroupName = $resourceGroup
+                    Location = $location
+                    Name = $networkSecurityGroupName
+                }
+                $nsg = New-AzNetworkSecurityGroup @Params -ErrorAction SilentlyContinue
+
+                $message = $networkSecurityGroupName + " network security group has been created."
+                NewMessage -message $message -type "success"
+            }
+            else {
+                $message = $networkSecurityGroupName + " network security group already exists." 
+                NewMessage -message $message -type "information"    
+            }
+            
+            # Create a new network interface
+            $message = ""
+            $vNet = Get-AzVirtualNetwork -Name $virtualNetworkName -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue
+            $Params = @{
+                Name = $networkInterfaceIpConfigName
+                PrivateIpAddressVersion = $privateIpAddressVersion
+                PrivateIpAddress = $privateIPAddress
+                SubnetId = ($vnet.Subnets | Where-Object {$_.Name -eq $subnetName}).Id
+            }
+            $IPconfig = New-AzNetworkInterfaceIpConfig @Params -ErrorAction SilentlyContinue
+
+            $nic = Get-AzNetworkInterface -Name $networkInterfaceName -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue
+            if ($null -eq $nic) {
+                $Params = @{
+                    Name = $networkInterfaceName
+                    ResourceGroupName = $resourceGroup
+                    Location = $location
+                    NetworkSecurityGroupId = $nsg.Id
+                    IpConfiguration = $IPconfig
+                }
+                $nic = New-AzNetworkInterface @Params -ErrorAction SilentlyContinue
+        
+                $message = $networkInterfaceName + " network interface has been created."
+                NewMessage -message $message -type "success"
+            }
+            else {
+                $message = $networkInterfaceName + " network interface already exists." 
+                NewMessage -message $message -type "information"    
+            }
+
+            # Create a new windows virtual machine
+            $message = ""
+            $SecurePassword = ConvertTo-SecureString $adminPassword -AsPlainText -Force
+            $credential = New-Object System.Management.Automation.PSCredential ($adminUsername, $SecurePassword); 
+            $check = Get-AzVM -Name $virtualMachineName -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue
+            if ($null -eq $check) {
+                $newVM = New-AzVMConfig -VMName $virtualMachineName -VMSize $virtualMachineSize
+                $newVM = Set-AzVMOperatingSystem -VM $newVM -Windows -ComputerName $virtualMachineName -Credential $credential -ProvisionVMAgent -EnableAutoUpdate
+                $newVM = Add-AzVMNetworkInterface -VM $newVM -Id $nic.Id
+                $newVM = Set-AzVMSourceImage -VM $newVM -PublisherName $vmPublisher -Offer $vmOfferName -Skus $vmSKUName -Version "latest"
+                
+                New-AzVM -ResourceGroupName $resourceGroup -Location $location -VM $newVM -ErrorAction SilentlyContinue -WarningAction SilentlyContinue | out-null
+
+                $message = $virtualMachineName + " virtual machine has been created."
+                NewMessage -message $message -type "success"
+            }
+            else {
+                $message = $virtualMachineName + " virtual machine already exists." 
+                NewMessage -message $message -type "information"    
+            }
+    }
+    catch {
+        Write-Warning "Error occured = " $Error[0]
+    }
+}
+
+# Create a new Network Security Group Rule
+function NewNetworkSecurityGroupRule 
+{
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$resourceGroup,
+        [Parameter(Mandatory = $true)]
+        [string]$networkSecurityGroupName,
+        [Parameter(Mandatory = $true)]
+        [string]$networkSecurityGroupRuleName,
+        [Parameter(Mandatory = $true)]
+        [string]$protocol,
+        [Parameter(Mandatory = $true)]
+        [string]$sourcePortRange,
+        [Parameter(Mandatory = $true)]
+        [string]$destinationPortRange,
+        [Parameter(Mandatory = $true)]
+        [string]$sourceAddressPrefix,
+        [Parameter(Mandatory = $true)]
+        [string]$destinationAddressPrefix,
+        [Parameter(Mandatory = $true)]
+        [string]$direction
+    )
+
+    try {
+
+        $message = ""
+        $check = Get-AzNetworkSecurityGroup -Name $networkSecurityGroupName -ResourceGroupName $resourceGroup | Get-AzNetworkSecurityRuleConfig -Name $networkSecurityGroupRuleName -ErrorAction SilentlyContinue
+        if ($null -eq $check) {
+            # Get the NSG resource
+            $nsg = Get-AzNetworkSecurityGroup -Name $networkSecurityGroupName -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue
+
+            # Add the inbound security rule.
+            $Params = @{
+                Name = $networkSecurityGroupRuleName
+                Access = "Allow"
+                Protocol = $protocol
+                Direction = $direction
+                Priority = "100"
+                SourceAddressPrefix = $sourceAddressPrefix
+                SourcePortRange = $sourcePortRange
+                DestinationAddressPrefix = $destinationAddressPrefix
+                DestinationPortRange = $destinationPortRange
+            }            
+            $nsg | Add-AzNetworkSecurityRuleConfig @Params -ErrorAction SilentlyContinue | out-null
+
+            # Update the NSG
+            $nsg | Set-AzNetworkSecurityGroup | out-null
+
+            $message = $networkSecurityGroupRuleName + " network security group rule has been created."
+            NewMessage -message $message -type "success"
+        }
+        else {
+            $message = $networkSecurityGroupRuleName + " network security group rule already exists." 
+            NewMessage -message $message -type "information"    
+        }
+
+    }
+    catch {
+        #Write-Host "Error occured" -ForegroundColor Red
+        $message = "Error occured."
+        NewMessage -message $message -type "error" 
+        Write-Warning "Error occured = " $Error[0]
+    }
+}
+
+# Configure Bastion to connect to Azure Virtual Machine
+function NewConnectionBastion 
+{
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$resourceGroup,
+        [Parameter(Mandatory = $true)]
+        [string]$location,
+        [Parameter(Mandatory = $true)]
+        [string]$publicIPName,
+        [Parameter(Mandatory = $true)]
+        [string]$publicIPAllocationMethod,
+        [Parameter(Mandatory = $true)]
+        [string]$publicIPIdleTimeoutInMinutes,
+        [Parameter(Mandatory = $true)]
+        [string]$publicIPSKU,
+        [Parameter(Mandatory = $true)]
+        [string]$virtualNetworkName
+    )
+
+    try {
+            # Create a public IP address
+            $message = ""
+            $publicIP = Get-AzPublicIpAddress -Name $publicIPName -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue
+            if ($null -eq $publicIP) {
+                $Params = @{
+                    ResourceGroupName = $resourceGroup
+                    Location = $location
+                    AllocationMethod = $publicIPAllocationMethod
+                    IdleTimeoutInMinutes = $publicIPIdleTimeoutInMinutes
+                    Name = $publicIPName
+                    Sku = $publicIPSKU
+                }   
+                $publicIP = New-AzPublicIpAddress @Params -ErrorAction SilentlyContinue
+
+                $message = $publicIPName + " public ip has been created."
+                NewMessage -message $message -type "success"
+            }
+
+            # Create Bastion
+            $message = ""
+            $bastionHostsName = $virtualNetworkName + "_Bastion"
+            $vNet = Get-AzVirtualNetwork -Name $virtualNetworkName -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue
+            $check = Get-AzBastion -Name $bastionHostsName -ResourceGroupName $resourceGroup -ErrorAction SilentlyContinue
+            if ($null -eq $check) {
+                if (!($null -eq $vNet)) {
+                    New-AzBastion -ResourceGroupName $resourceGroup -Name $bastionHostsName -PublicIpAddress $publicIP -VirtualNetwork $vNet | out-null
+
+                    $message = $bastionHostsName + " resource has been created."
+                    NewMessage -message $message -type "success"
+                }
+                else {
+                    $message = $bastionHostsName + " resource has not been created because virtual network couldn't be found in the resource group." 
+                    NewMessage -message $message -type "error"  
+                    Exit
+                }
+
+            }
+            else {
+                $message = $bastionHostsName + " resource already exists." 
+                NewMessage -message $message -type "information"    
+            }
+    }
+    catch {
+        Write-Warning "Error occured = " $Error[0]
+    }
 }
 
 # Main Code
@@ -198,3 +447,81 @@ $NewVirtualNetworkParams = @{
     dnsIPAddress = "10.10.21.10" # Set private IP address (privateIPAddress) of Domain Controller
 }
 NewVirtualNetwork @NewVirtualNetworkParams
+
+# Common Parameters for Windows Virtual Machine
+$commonWindowsVMParams = @{
+    resourceGroup = $resourceGroup
+    location = $location
+    networkInterfaceIpConfigName = "IpConfig01"
+    privateIpAddressVersion = "IPv4"
+    virtualNetworkName = "VNet"
+    adminUsername = "azadmin"
+    adminPassword = "Microsoft123"
+    virtualMachineSize = "Standard_D2s_v3"
+    vmPublisher = "MicrosoftWindowsServer"
+    vmOfferName = "WindowsServer"
+    vmSKUName = "2019-Datacenter"
+}
+
+# Common Parameters for Windows Virtual Machine with SQL Server
+$commonSQLVMParams = @{
+    resourceGroup = $resourceGroup
+    location = $location
+    networkInterfaceIpConfigName = "IpConfig01"
+    privateIpAddressVersion = "IPv4"
+    virtualNetworkName = "VNet"
+    adminUsername = "azadmin"
+    adminPassword = "Microsoft123"
+    virtualMachineSize = "Standard_D2s_v3"
+    vmPublisher = "MicrosoftSQLServer"
+    vmOfferName = "sql2019-ws2019"
+    vmSKUName = "sqldev"
+}
+
+# Common Parameters for RDP rule in network security group
+$commonNsgRdpParams = @{
+    resourceGroup = $resourceGroup
+    networkSecurityGroupRuleName = "AllowRDP"
+    protocol = "TCP"
+    sourcePortRange = "*"
+    destinationPortRange = "3389"
+    sourceAddressPrefix = "10.10.21.128/27" #subnetBastion_addressRange
+    destinationAddressPrefix = "*"
+    direction = "Inbound"
+}
+
+# Create a new Windows Virtual Machine - DCVM01    
+$NewWindowsVMParams = @{
+    privateIPAddress = "10.10.21.10" #IP address from backend
+    subnetName = "backend"
+    networkInterfaceName = "nic-dcvm01"
+    networkSecurityGroupName = "nsg-dcvm01"
+    virtualMachineName = "DCVM01"
+}
+NewWindowsVM @NewWindowsVMParams @commonWindowsVMParams
+# Create a new Network Security Group Rule RDP
+NewNetworkSecurityGroupRule -networkSecurityGroupName "nsg-dcvm01" @commonNsgRdpParams
+
+# Create a new Windows Virtual Machine - AlwaysOnN1    
+$NewWindowsVMParams = @{
+    privateIPAddress = "10.10.21.11" #IP address from backend
+    subnetName = "backend"
+    networkInterfaceName = "nic-alwaysonn1"
+    networkSecurityGroupName = "nsg-alwaysonn1"
+    virtualMachineName = "AlwaysOnN1"
+}
+NewWindowsVM @NewWindowsVMParams @commonSQLVMParams
+# Create a new Network Security Group Rule RDP
+NewNetworkSecurityGroupRule -networkSecurityGroupName "nsg-alwaysonn1" @commonNsgRdpParams
+
+# Configure Bastion to connect to Azure Virtual Machine
+$NewConnectionBastionParams = @{
+    resourceGroup = $resourceGroup
+    location  = $location
+    publicIPName ="PublicIPBastion"
+    publicIPAllocationMethod = "Static"
+    publicIPIdleTimeoutInMinutes = "4"
+    publicIPSKU = "Standard"
+    virtualNetworkName = "VNet"
+}
+NewConnectionBastion @NewConnectionBastionParams
