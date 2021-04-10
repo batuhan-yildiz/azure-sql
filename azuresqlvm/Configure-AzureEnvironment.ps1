@@ -1,6 +1,9 @@
+#Last execution of the entire script (7 VMs) below took 40 minutes 
+
 # Connect to Azure Subscription
 # Enable Firewall Rule
 # Install Active Directory Domain Services
+# Configure Active Directory Domain
 # Create a new Active Directory Organization Unit and make it default for computer objects
 # Join Azure VM to domain
 # Add Firewall Rule
@@ -104,18 +107,53 @@ function InstallADDS
         [Parameter(Mandatory = $true)]
         [string]$vmName,
         [Parameter(Mandatory = $true)]
+        [string]$resourceGroup
+    )
+    try {
+            # Create a temporary file in the users TEMP directory
+            $file = $env:TEMP + "\InstallADDS.ps1"
+
+            $commands = "#Install AD DS feature" + "`r`n"
+            $commands = $commands + "Install-WindowsFeature AD-Domain-Services -IncludeManagementTools -Restart" + "`r`n"
+
+            $commands | Out-File -FilePath $file -force
+
+            $result = Invoke-AzVMRunCommand -ResourceGroupName $resourceGroup -VMName $vmName -CommandId "RunPowerShellScript" -ScriptPath $file
+
+            if ($result.Status -eq "Succeeded") {
+                $message = "Active Directory has been enabled on $vmName."
+                NewMessage -message $message -type "success"
+            }
+            else {
+                $message = "Active Directory couldn't be enabled on $vmName."
+                NewMessage -message $message -type "error"
+            }
+
+            Remove-Item $file
+    }
+    catch {
+        Remove-Item $file
+        Write-Warning "Error occured = " $Error[0]
+    }
+}   
+
+# Configure Active Directory Domain
+function ConfigureADDS 
+{
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$vmName,
+        [Parameter(Mandatory = $true)]
         [string]$resourceGroup,
         [Parameter(Mandatory = $true)]
         [string]$adminPassword
     )
     try {
             # Create a temporary file in the users TEMP directory
-            $file = $env:TEMP + "\InstallADDS.ps1"
+            $file = $env:TEMP + "\ConfigureADDS.ps1"
 
             $commands = "`$SecurePassword = ConvertTo-SecureString ""$adminPassword"" -AsPlainText -Force" + "`r`n"
-            $commands = $commands + "`r`n"
-            $commands = $commands + "#Install AD DS feature" + "`r`n"
-            $commands = $commands + "Install-WindowsFeature AD-Domain-Services -IncludeManagementTools" + "`r`n"
             $commands = $commands + "`r`n"
             $commands = $commands + "#AD DS Deployment" + "`r`n"
             $commands = $commands + "Import-Module ADDSDeployment" + "`r`n"
@@ -137,11 +175,11 @@ function InstallADDS
             $result = Invoke-AzVMRunCommand -ResourceGroupName $resourceGroup -VMName $vmName -CommandId "RunPowerShellScript" -ScriptPath $file
 
             if ($result.Status -eq "Succeeded") {
-                $message = "Active Directory has been enabled on $vmName."
+                $message = "Active Directory has been configured on $vmName."
                 NewMessage -message $message -type "success"
             }
             else {
-                $message = "Active Directory couldn't be enabled on $vmName."
+                $message = "Active Directory couldn't be configured on $vmName."
                 NewMessage -message $message -type "error"
             }
 
@@ -173,6 +211,10 @@ function NewADOU
             $commands | Out-File -FilePath $file -force
 
             $result = Invoke-AzVMRunCommand -ResourceGroupName $resourceGroup -VMName $vmName -CommandId "RunPowerShellScript" -ScriptPath $file
+
+            while ($result.value.Message -like '*error*') {
+                $result = Invoke-AzVMRunCommand -ResourceGroupName $resourceGroup -VMName $vmName -CommandId "RunPowerShellScript" -ScriptPath $file
+            }
 
             if ($result.Status -eq "Succeeded") {
                 $message = "Active Directory Organization Unit has been created on $vmName."
@@ -275,6 +317,8 @@ function AddFirewallRule
 }
 
 # Main Code
+Write-Host "Configuration starts: $(Get-Date)"
+Set-Item -Path Env:\SuppressAzurePowerShellBreakingChangeWarnings -Value $true
 
 # Connect to Azure Subscription
 ConnectToAzure -subscriptionId $subscriptionId
@@ -282,17 +326,57 @@ ConnectToAzure -subscriptionId $subscriptionId
 # Enable Firewall Rule
 EnableFirewallRule -resourceGroup $resourceGroup -vmName "DCVM01" -ErrorAction SilentlyContinue
 EnableFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnN1" -ErrorAction SilentlyContinue
+EnableFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnN2" -ErrorAction SilentlyContinue
+EnableFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnN3" -ErrorAction SilentlyContinue
+EnableFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnN4" -ErrorAction SilentlyContinue
+EnableFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnN5" -ErrorAction SilentlyContinue
+EnableFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnClient" -ErrorAction SilentlyContinue
 
 # Install Active Directory Domain Services
-InstallADDS -resourceGroup $resourceGroup -vmName "DCVM01" -adminPassword "Microsoft123" -ErrorAction SilentlyContinue
+InstallADDS -resourceGroup $resourceGroup -vmName "DCVM01" -ErrorAction SilentlyContinue
+
+# Configure Active Directory Domain
+ConfigureADDS -resourceGroup $resourceGroup -vmName "DCVM01" -adminPassword "Microsoft123" -ErrorAction SilentlyContinue
 
 # Create a new Active Directory Organization Unit and make it default for computer objects
 NewADOU -resourceGroup $resourceGroup -vmName "DCVM01" -ErrorAction SilentlyContinue
 
+#################################################################################################
 # Join Azure VM to domain
 JoinDomain -resourceGroup $resourceGroup -vmName "AlwaysOnN1" -domain "contoso" -adminUsername "azadmin" -adminPassword "Microsoft123" -ErrorAction SilentlyContinue
 
 # Add Firewall Rule
 AddFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnN1" -ErrorAction SilentlyContinue
+#################################################################################################
+# Join Azure VM to domain
+JoinDomain -resourceGroup $resourceGroup -vmName "AlwaysOnN2" -domain "contoso" -adminUsername "azadmin" -adminPassword "Microsoft123" -ErrorAction SilentlyContinue
 
+# Add Firewall Rule
+AddFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnN2" -ErrorAction SilentlyContinue
+#################################################################################################
+# Join Azure VM to domain
+JoinDomain -resourceGroup $resourceGroup -vmName "AlwaysOnN3" -domain "contoso" -adminUsername "azadmin" -adminPassword "Microsoft123" -ErrorAction SilentlyContinue
 
+# Add Firewall Rule
+AddFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnN3" -ErrorAction SilentlyContinue
+#################################################################################################
+# Join Azure VM to domain
+JoinDomain -resourceGroup $resourceGroup -vmName "AlwaysOnN4" -domain "contoso" -adminUsername "azadmin" -adminPassword "Microsoft123" -ErrorAction SilentlyContinue
+
+# Add Firewall Rule
+AddFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnN4" -ErrorAction SilentlyContinue
+#################################################################################################
+# Join Azure VM to domain
+JoinDomain -resourceGroup $resourceGroup -vmName "AlwaysOnN5" -domain "contoso" -adminUsername "azadmin" -adminPassword "Microsoft123" -ErrorAction SilentlyContinue
+
+# Add Firewall Rule
+AddFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnN5" -ErrorAction SilentlyContinue
+#################################################################################################
+# Join Azure VM to domain
+JoinDomain -resourceGroup $resourceGroup -vmName "AlwaysOnClient" -domain "contoso" -adminUsername "azadmin" -adminPassword "Microsoft123" -ErrorAction SilentlyContinue
+
+# Add Firewall Rule
+AddFirewallRule -resourceGroup $resourceGroup -vmName "AlwaysOnClient" -ErrorAction SilentlyContinue
+#################################################################################################
+
+Write-Host "Configuration ends: $(Get-Date)"

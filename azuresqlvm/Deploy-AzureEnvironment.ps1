@@ -1,3 +1,5 @@
+#Last execution of the entire script (7 VMs) below took 30 minutes 
+
 # Connect to Azure Subscription
 # Create a new Resource Group
 # Create a new Virtual Network with 3 subnets
@@ -419,7 +421,7 @@ function NewConnectionBastion
 }
 
 # Main Code
-
+Write-Host "Deployment starts: $(Get-Date)"
 Set-Item -Path Env:\SuppressAzurePowerShellBreakingChangeWarnings -Value $true
 
 # Connect to Azure Subscription
@@ -490,6 +492,7 @@ $commonNsgRdpParams = @{
     direction = "Inbound"
 }
 
+#################################################################################################
 # Create a new Windows Virtual Machine - DCVM01    
 $NewWindowsVMParams = @{
     privateIPAddress = "10.10.21.10" #IP address from backend
@@ -501,7 +504,7 @@ $NewWindowsVMParams = @{
 NewWindowsVM @NewWindowsVMParams @commonWindowsVMParams
 # Create a new Network Security Group Rule RDP
 NewNetworkSecurityGroupRule -networkSecurityGroupName "nsg-dcvm01" @commonNsgRdpParams
-
+#################################################################################################
 # Create a new Windows Virtual Machine - AlwaysOnN1    
 $NewWindowsVMParams = @{
     privateIPAddress = "10.10.21.11" #IP address from backend
@@ -513,7 +516,67 @@ $NewWindowsVMParams = @{
 NewWindowsVM @NewWindowsVMParams @commonSQLVMParams
 # Create a new Network Security Group Rule RDP
 NewNetworkSecurityGroupRule -networkSecurityGroupName "nsg-alwaysonn1" @commonNsgRdpParams
-
+#################################################################################################
+# Create a new Windows Virtual Machine - AlwaysOnN2    
+$NewWindowsVMParams = @{
+    privateIPAddress = "10.10.21.12" #IP address from backend
+    subnetName = "backend"
+    networkInterfaceName = "nic-alwaysonn2"
+    networkSecurityGroupName = "nsg-alwaysonn2"
+    virtualMachineName = "AlwaysOnN2"
+}
+NewWindowsVM @NewWindowsVMParams @commonSQLVMParams
+# Create a new Network Security Group Rule RDP
+NewNetworkSecurityGroupRule -networkSecurityGroupName "nsg-alwaysonn2" @commonNsgRdpParams
+#################################################################################################
+# Create a new Windows Virtual Machine - AlwaysOnN3    
+$NewWindowsVMParams = @{
+    privateIPAddress = "10.10.21.13" #IP address from backend
+    subnetName = "backend"
+    networkInterfaceName = "nic-alwaysonn3"
+    networkSecurityGroupName = "nsg-alwaysonn3"
+    virtualMachineName = "AlwaysOnN3"
+}
+NewWindowsVM @NewWindowsVMParams @commonSQLVMParams
+# Create a new Network Security Group Rule RDP
+NewNetworkSecurityGroupRule -networkSecurityGroupName "nsg-alwaysonn3" @commonNsgRdpParams
+#################################################################################################
+# Create a new Windows Virtual Machine - AlwaysOnN4    
+$NewWindowsVMParams = @{
+    privateIPAddress = "10.10.21.14" #IP address from backend
+    subnetName = "backend"
+    networkInterfaceName = "nic-alwaysonn4"
+    networkSecurityGroupName = "nsg-alwaysonn4"
+    virtualMachineName = "AlwaysOnN4"
+}
+NewWindowsVM @NewWindowsVMParams @commonSQLVMParams
+# Create a new Network Security Group Rule RDP
+NewNetworkSecurityGroupRule -networkSecurityGroupName "nsg-alwaysonn4" @commonNsgRdpParams
+#################################################################################################
+# Create a new Windows Virtual Machine - AlwaysOnN5    
+$NewWindowsVMParams = @{
+    privateIPAddress = "10.10.21.15" #IP address from backend
+    subnetName = "backend"
+    networkInterfaceName = "nic-alwaysonn5"
+    networkSecurityGroupName = "nsg-alwaysonn5"
+    virtualMachineName = "AlwaysOnN5"
+}
+NewWindowsVM @NewWindowsVMParams @commonSQLVMParams
+# Create a new Network Security Group Rule RDP
+NewNetworkSecurityGroupRule -networkSecurityGroupName "nsg-alwaysonn5" @commonNsgRdpParams
+#################################################################################################
+# Create a new Windows Virtual Machine - AlwaysOnClient    
+$NewWindowsVMParams = @{
+    privateIPAddress = "10.10.20.11" #IP address from frontend
+    subnetName = "frontend"
+    networkInterfaceName = "nic-alwaysonclient"
+    networkSecurityGroupName = "nsg-alwaysonclient"
+    virtualMachineName = "AlwaysOnClient"
+}
+NewWindowsVM @NewWindowsVMParams @commonSQLVMParams
+# Create a new Network Security Group Rule RDP
+NewNetworkSecurityGroupRule -networkSecurityGroupName "nsg-alwaysonclient" @commonNsgRdpParams
+#################################################################################################
 # Configure Bastion to connect to Azure Virtual Machine
 $NewConnectionBastionParams = @{
     resourceGroup = $resourceGroup
@@ -525,3 +588,5 @@ $NewConnectionBastionParams = @{
     virtualNetworkName = "VNet"
 }
 NewConnectionBastion @NewConnectionBastionParams
+
+Write-Host "Deployment ends: $(Get-Date)"
